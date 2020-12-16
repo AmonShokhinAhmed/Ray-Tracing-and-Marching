@@ -20,6 +20,7 @@ struct Sphere
     float3 specular;
 };
 
+int _SphereCount;
 StructuredBuffer<Sphere> _Spheres;
 
 struct Ray
@@ -77,8 +78,8 @@ void IntersectGroundPlane(Ray ray, inout RayHit bestHit)
 		bestHit.distance = t;
 		bestHit.position = ray.origin + t * ray.direction;
         bestHit.normal = float3(0.0f, 1.0f, 0.0f);
-        bestHit.albedo = 0.8f;
-        bestHit.specular = 0.03f;
+        bestHit.albedo = 1.0f;
+        bestHit.specular = 0.0f;
     }
 }
 
@@ -104,16 +105,16 @@ void IntersectSphere(Ray ray, inout RayHit bestHit, Sphere sphere)
 
 RayHit Trace(Ray ray)
 {
-    RayHit bestHit = CreateRayHit();
-    // Trace ground plane
-    IntersectGroundPlane(ray, bestHit);
-    // Trace spheres
-    uint numSpheres, stride;
-    _Spheres.GetDimensions(numSpheres, stride);
-    for (uint i = 0; i < numSpheres; i++) {
-        IntersectSphere(ray, bestHit, _Spheres[i]);
-    }
-    return bestHit;
+	RayHit bestHit = CreateRayHit();
+	// Trace ground plane
+	IntersectGroundPlane(ray, bestHit);
+	// Trace spheres
+	if (_SphereCount > 0) {
+		for (uint i = 0; i < _SphereCount; i++) {
+			IntersectSphere(ray, bestHit, _Spheres[i]);
+		}
+	}
+	return bestHit;
 }
 
 
