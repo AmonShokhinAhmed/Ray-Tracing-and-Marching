@@ -50,7 +50,7 @@ public class RayTracingMaster : MonoBehaviour
         _addMaterial.SetFloat("_Sample", _currentSample);
         Graphics.Blit(_target, destination, _addMaterial);
         _currentSample++;
-        _currentSample%=24;
+        //_currentSample%=24;
     }
     private void InitRenderTexture()
     {
