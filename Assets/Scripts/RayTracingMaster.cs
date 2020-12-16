@@ -62,15 +62,18 @@ public class RayTracingMaster : MonoBehaviour
         for (int i = 0; i < Spheres.Length; i++)
         {
             Sphere sphere = new Sphere();
-            sphere.radius = Spheres[i].transform.localScale.x*0.5f;
+            sphere.radius = Spheres[i].transform.localScale.x * 0.5f;
             sphere.position = Spheres[i].transform.position;
             sphere.albedo = Spheres[i].albedo;
             sphere.specular = Spheres[i].specular;
             spheres.Add(sphere);
         }
         // Assign to compute buffer
-        _sphereBuffer = new ComputeBuffer(spheres.Count, 40);
-        _sphereBuffer.SetData(spheres);
+        if (spheres.Count > 0)
+        {
+            _sphereBuffer = new ComputeBuffer(spheres.Count, 40);
+            _sphereBuffer.SetData(spheres);
+        }
     }
     private void SetShaderParameters()
     {
@@ -80,8 +83,10 @@ public class RayTracingMaster : MonoBehaviour
         RayTracingShader.SetVector("_PixelOffset", new Vector2(Random.value, Random.value));
         Vector3 l = DirectionalLight.transform.forward;
         RayTracingShader.SetVector("_DirectionalLight", new Vector4(l.x, l.y, l.z, DirectionalLight.intensity));
-        RayTracingShader.SetBuffer(0, "_Spheres", _sphereBuffer);
-
+        if (_sphereBuffer != null)
+        {
+            RayTracingShader.SetBuffer(0, "_Spheres", _sphereBuffer);
+        }
     }
     private void Render(RenderTexture destination)
     {
