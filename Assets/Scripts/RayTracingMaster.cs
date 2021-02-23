@@ -9,6 +9,13 @@ public class RayTracingMaster : MonoBehaviour
         public Vector3 albedo;
         public Vector3 specular;
     }
+    struct AABB
+    {
+        public Vector3 min;
+        public Vector3 max;
+        public Vector3 albedo;
+        public Vector3 specular;
+    }
     public Texture SkyboxTexture;
     public ComputeShader RayTracingShader;
     private RenderTexture _target;
@@ -20,11 +27,12 @@ public class RayTracingMaster : MonoBehaviour
     public Light DirectionalLight;
 
     public SpherePrimitive[] Spheres;
-    //public Vector2 SphereRadius = new Vector2(3.0f, 8.0f);
-    //public uint SpheresMax = 100;
-    //public float SpherePlacementRadius = 100.0f;
     private ComputeBuffer _sphereBuffer;
     private int _sphereCount;
+
+    public AABBPrimitive[] AABBs; 
+    private ComputeBuffer _aabbBuffer;
+    private int _aabbCount;
 
     private void OnEnable()
     {
@@ -54,6 +62,8 @@ public class RayTracingMaster : MonoBehaviour
     {
         if (_sphereBuffer != null)
             _sphereBuffer.Release();
+        if (_aabbBuffer != null)
+            _aabbBuffer.Release();
     }
 
     private void SetUpScene()
@@ -73,6 +83,25 @@ public class RayTracingMaster : MonoBehaviour
         _sphereCount = spheres.Count;
         _sphereBuffer = new ComputeBuffer(_sphereCount != 0? _sphereCount:1, 40);
         _sphereBuffer.SetData(spheres);
+
+
+        List<AABB> aabbs = new List<AABB>();
+        // Add a number of random spheres
+        for (int i = 0; i < AABBs.Length; i++)
+        {
+            AABB aabb = new AABB();
+            aabb.min = AABBs[i].transform.position - AABBs[i].transform.localScale * 0.5f;
+            aabb.max = AABBs[i].transform.position + AABBs[i].transform.localScale * 0.5f;
+            Debug.Log("min: " + aabb.min);
+            Debug.Log("max: " + aabb.max);
+            aabb.albedo = AABBs[i].albedo;
+            aabb.specular = AABBs[i].specular;
+            aabbs.Add(aabb);
+        }
+        // Assign to compute buffer
+        _aabbCount = aabbs.Count;
+        _aabbBuffer = new ComputeBuffer(_aabbCount != 0 ? _aabbCount : 1, 48);
+        _aabbBuffer.SetData(aabbs);
     }
     private void SetShaderParameters()
     {
@@ -84,6 +113,8 @@ public class RayTracingMaster : MonoBehaviour
         RayTracingShader.SetVector("_DirectionalLight", new Vector4(l.x, l.y, l.z, DirectionalLight.intensity));
         RayTracingShader.SetBuffer(0, "_Spheres", _sphereBuffer);
         RayTracingShader.SetInt("_SphereCount", _sphereCount);
+        RayTracingShader.SetBuffer(0, "_AABBs", _aabbBuffer);
+        RayTracingShader.SetInt("_AABBCount", _aabbCount);
     }
     private void Render(RenderTexture destination)
     {

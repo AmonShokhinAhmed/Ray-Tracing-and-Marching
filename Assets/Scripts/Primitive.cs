@@ -4,11 +4,14 @@ public abstract class Primitive : MonoBehaviour
 {
     public Vector3 albedo;
     public Vector3 specular;
-
+    public bool DebugDraw = true;
     private void OnDrawGizmos()
     {
-        DrawGizmos();
+        if (DebugDraw)
+        {
+            Draw();
+        }
     }
 
-    protected abstract void DrawGizmos();
+    protected abstract void Draw();
 }

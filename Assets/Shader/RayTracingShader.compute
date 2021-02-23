@@ -1,4 +1,9 @@
 ﻿#pragma kernel CSMain
+static const float PI = 3.14159265f;
+//static const float FLT_MAX = 3.402823466e+38f
+static const float FLT_MAX = 999999.0f;
+static const float EPSILON = 0.001f;
+
 RWTexture2D<float4> Result;
 
 float4x4 _CameraToWorld;
@@ -6,8 +11,6 @@ float4x4 _CameraInverseProjection;
 
 Texture2D<float4> _SkyboxTexture;
 SamplerState sampler_SkyboxTexture;
-static const float PI = 3.14159265f;
-
 float2 _PixelOffset;
 
 float4 _DirectionalLight;
@@ -19,15 +22,43 @@ struct Sphere
     float3 albedo;
     float3 specular;
 };
-
 int _SphereCount;
 StructuredBuffer<Sphere> _Spheres;
 
+struct AABB
+{
+    float3 min;
+    float3 max;
+	float3 albedo;
+	float3 specular;
+};
+
+int _AABBCount;
+StructuredBuffer<AABB> _AABBs;
+
+float3 ComputeNormalOnAABB(float3 intersection, AABB aabb)
+{
+	float3 center = aabb.min + ((aabb.max - aabb.min) * 0.5f);
+	float3 dir = intersection - center;
+	float xyCoef = dir.y / dir.x;
+	float zyCoef = dir.y / dir.z;
+
+    float3 normal = float3(1, 0, 0) * sign(dir.x);
+    if (-1 <= xyCoef && xyCoef <= 1) {
+        normal = float3(0, 1, 0) * sign(dir.y);
+    }
+    else if (-1 < zyCoef && zyCoef < 1) {
+        normal = float3(0, 0, 1) * sign(dir.z);
+    }
+    return normal;
+}
+
+
 struct Ray
 {
-    float3 origin;
-    float3 direction;
-    float3 energy;
+	float3 origin;
+	float3 direction;
+	float3 energy;
 };
 Ray CreateRay(float3 origin, float3 direction)
 {
@@ -37,6 +68,19 @@ Ray CreateRay(float3 origin, float3 direction)
     ray.energy = float3(1.0f,1.0f,1.0f);
     return ray;
 }
+Ray CreateCameraRay(float2 uv)
+{
+    // Transform the camera origin to world space
+    float3 origin = mul(_CameraToWorld, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
+
+    // Invert the perspective projection of the view-space position
+    float3 direction = mul(_CameraInverseProjection, float4(uv, 0.0f, 1.0f)).xyz;
+    // Transform the direction from camera to world space and normalize
+    direction = mul(_CameraToWorld, float4(direction, 0.0f)).xyz;
+    direction = normalize(direction);
+    return CreateRay(origin, direction);
+}
+
 struct RayHit
 {
     float3 position;
@@ -54,18 +98,6 @@ RayHit CreateRayHit()
     hit.albedo = float3(0.0f, 0.0f, 0.0f);
     hit.specular = float3(0.0f, 0.0f, 0.0f);
     return hit;
-}
-Ray CreateCameraRay(float2 uv)
-{
-    // Transform the camera origin to world space
-    float3 origin = mul(_CameraToWorld, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
-
-    // Invert the perspective projection of the view-space position
-    float3 direction = mul(_CameraInverseProjection, float4(uv, 0.0f, 1.0f)).xyz;
-    // Transform the direction from camera to world space and normalize
-    direction = mul(_CameraToWorld, float4(direction, 0.0f)).xyz;
-    direction = normalize(direction);
-    return CreateRay(origin, direction);
 }
 
 void IntersectGroundPlane(Ray ray, inout RayHit bestHit)
@@ -103,19 +135,74 @@ void IntersectSphere(Ray ray, inout RayHit bestHit, Sphere sphere)
     }
 }
 
+void IntersectAABB(Ray ray, inout RayHit bestHit, AABB aabb)
+{
+    float3 inverseRayDirection = ray.direction/1.0f;
+	int rayDirectionSigns[] = {
+		inverseRayDirection.x < 0 ? 1 : 0,
+		inverseRayDirection.y < 0 ? 1 : 0,
+		inverseRayDirection.z < 0 ? 1 : 0
+	};
+	float3 bounds[] =
+	{
+        aabb.min,
+        aabb.max
+    };
+
+    float tmin, tmax, tymin, tymax, tzmin, tzmax;
+    tmin = (bounds[rayDirectionSigns[0]].x - ray.origin.x) * inverseRayDirection.x;
+    tmax = (bounds[1 - rayDirectionSigns[0]].x - ray.origin.x) * inverseRayDirection.x;
+    tymin = (bounds[rayDirectionSigns[1]].y - ray.origin.y) * inverseRayDirection.y;
+    tymax = (bounds[1 - rayDirectionSigns[1]].y - ray.origin.y) * inverseRayDirection.y;
+
+    if ((tmin > tymax) || (tymin > tmax))
+        return;
+    if (tymin > tmin)
+        tmin = tymin;
+    if (tymax < tmax)
+        tmax = tymax;
+
+    tzmin = (bounds[rayDirectionSigns[2]].z - ray.origin.z) * inverseRayDirection.z;
+    tzmax = (bounds[1 - rayDirectionSigns[2]].z - ray.origin.z) * inverseRayDirection.z;
+
+    if ((tmin > tzmax) || (tzmin > tmax))
+        return;
+    if (tzmin > tmin)
+        tmin = tzmin;
+    if (tzmax < tmax)
+        tmax = tzmax;
+
+    if (tmin > 0 && tmin < bestHit.distance)
+    {
+        bestHit.distance = tmin;
+        bestHit.position = ray.origin + tmin * ray.direction;
+        bestHit.normal = normalize(ComputeNormalOnAABB(bestHit.position, aabb));
+        bestHit.albedo = aabb.albedo;
+        bestHit.specular = aabb.specular;
+    }
+}
+
 RayHit Trace(Ray ray)
 {
 	RayHit bestHit = CreateRayHit();
 	// Trace ground plane
-	IntersectGroundPlane(ray, bestHit);
+	//IntersectGroundPlane(ray, bestHit);
 	// Trace spheres
-	if (_SphereCount > 0) {
-		for (uint i = 0; i < _SphereCount; i++) {
-			IntersectSphere(ray, bestHit, _Spheres[i]);
-		}
+	for (int i = 0; i < _SphereCount; i++) {
+		IntersectSphere(ray, bestHit, _Spheres[i]);
+	}
+
+	for (int i = 0; i < _AABBCount; i++) {
+        AABB aabb; 
+        aabb.min = float3(-2.0f, 0.0f, 4.0f);
+        aabb.max = float3(2.0f, 2.0f, 6.0f);
+        aabb.albedo = float3(0, 1, 0);
+        aabb.specular = float3(0.1f, 0.1f, 0.1f);
+        IntersectAABB(ray, bestHit, _AABBs[i]);
 	}
 	return bestHit;
 }
+
 
 
 
@@ -124,12 +211,12 @@ float3 Shade(inout Ray ray, RayHit hit)
     if (hit.distance < 1.#INF)
     {
         // Reflect the ray and multiply energy with specular reflection
-        ray.origin = hit.position + hit.normal * 0.001f;
+        ray.origin = hit.position + hit.normal * EPSILON;
         ray.direction = reflect(ray.direction, hit.normal);
         ray.energy *= hit.specular;
         // Shadow test ray
         bool shadow = false;
-        Ray shadowRay = CreateRay(hit.position + hit.normal * 0.001f, -1 * _DirectionalLight.xyz);
+        Ray shadowRay = CreateRay(hit.position + hit.normal * EPSILON, -1 * _DirectionalLight.xyz);
         RayHit shadowHit = Trace(shadowRay);
         if (shadowHit.distance != 1.#INF)
         {
